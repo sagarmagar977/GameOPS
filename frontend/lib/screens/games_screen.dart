@@ -373,13 +373,17 @@ class _GamesScreenState extends State<GamesScreen> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          game.isActive ? 'On' : 'Off',
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(width: 6),
         SizedBox(
-          width: 42,
+          width: 24,
+          child: Text(
+            game.isActive ? 'On' : 'Off',
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 48,
           child: Switch(
             value: game.isActive,
             onChanged: !enabled || isToggling ? null : (value) => _toggleAvailability(game, value),

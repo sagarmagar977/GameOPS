@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/api_client.dart';
 import '../models/app_user.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -8,7 +9,7 @@ class LoginScreen extends StatefulWidget {
     required this.onLogin,
   });
 
-  final ValueChanged<AppUser> onLogin;
+  final Future<void> Function(AppUser user, bool rememberMe) onLogin;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -16,39 +17,60 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
+  final _api = const ApiClient();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+  bool _isRegisterMode = false;
+  bool _isSubmitting = false;
+  bool _rememberMe = true;
   String? _errorText;
-
-  static const _accounts = <String, ({String password, UserRole role})>{
-    'admin': (password: 'admin123', role: UserRole.admin),
-    'operator': (password: 'user123', role: UserRole.operator),
-  };
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
-    final username = _usernameController.text.trim().toLowerCase();
-    final password = _passwordController.text;
-    final account = _accounts[username];
+    setState(() {
+      _isSubmitting = true;
+      _errorText = null;
+    });
 
-    if (account == null || account.password != password) {
-      setState(() => _errorText = 'Wrong username or password.');
-      return;
+    try {
+      final email = _emailController.text.trim().toLowerCase();
+      final payload = _isRegisterMode
+          ? await _api.register(
+              email,
+              _passwordController.text,
+              _confirmPasswordController.text,
+            )
+          : await _api.login(
+              email,
+              _passwordController.text,
+            );
+
+      if (!mounted) {
+        return;
+      }
+
+      await widget.onLogin(AppUser.fromAuthResponse(payload), _rememberMe);
+    } catch (error) {
+      setState(() => _errorText = error.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
-
-    setState(() => _errorText = null);
-    widget.onLogin(AppUser(username: username, role: account.role));
   }
 
   @override
@@ -116,13 +138,14 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         const SizedBox(height: 20),
         Text(
-          'Log in to unlock the admin cockpit.',
+          _isRegisterMode ? 'Create your operator account.' : 'Log in to unlock the admin cockpit.',
           style: theme.textTheme.displaySmall,
         ),
         const SizedBox(height: 18),
         Text(
-          'Admins get the full CRUD workspace for games, credentials, FAQs, and discussions. '
-          'Operators get a cleaner read-only view.',
+          _isRegisterMode
+              ? 'Create an account with your email and password. New signups become operator users by default.'
+              : 'Sign in with your backend account. Admins can edit data, while operators get the viewer workflow.',
           style: theme.textTheme.titleMedium?.copyWith(height: 1.5),
         ),
         const SizedBox(height: 28),
@@ -131,14 +154,14 @@ class _LoginScreenState extends State<LoginScreen> {
           runSpacing: 16,
           children: const [
             _InfoChip(
-              icon: Icons.shield_outlined,
-              title: 'Admin',
-              subtitle: 'Username: admin  Password: admin123',
+              icon: Icons.admin_panel_settings_outlined,
+              title: 'Seeded Admin',
+              subtitle: 'Email: admin@example.com  Password: admin123',
             ),
             _InfoChip(
-              icon: Icons.person_outline,
-              title: 'Operator',
-              subtitle: 'Username: operator  Password: user123',
+              icon: Icons.person_add_alt_1_outlined,
+              title: 'Create Account',
+              subtitle: 'Register from this screen and log in instantly',
             ),
           ],
         ),
@@ -157,22 +180,32 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Welcome back', style: theme.textTheme.headlineMedium),
+              Text(
+                _isRegisterMode ? 'Create account' : 'Welcome back',
+                style: theme.textTheme.headlineMedium,
+              ),
               const SizedBox(height: 8),
               Text(
-                'Use the demo login to enter the panel.',
+                _isRegisterMode
+                    ? 'Use your email and a password with at least 6 characters.'
+                    : 'Use your backend email and password to enter the panel.',
                 style: theme.textTheme.bodyLarge,
               ),
               const SizedBox(height: 24),
               TextFormField(
-                controller: _usernameController,
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
-                  labelText: 'Username',
-                  prefixIcon: Icon(Icons.person_outline),
+                  labelText: 'Email',
+                  prefixIcon: Icon(Icons.mail_outline),
                 ),
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Enter a username';
+                  final email = value?.trim() ?? '';
+                  if (email.isEmpty) {
+                    return 'Enter your email';
+                  }
+                  if (!email.contains('@')) {
+                    return 'Enter a valid email';
                   }
                   return null;
                 },
@@ -197,10 +230,53 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (value == null || value.isEmpty) {
                     return 'Enter a password';
                   }
+                  if (_isRegisterMode && value.length < 6) {
+                    return 'Use at least 6 characters';
+                  }
                   return null;
                 },
-                onFieldSubmitted: (_) => _submit(),
+                onFieldSubmitted: (_) {
+                  if (!_isRegisterMode) {
+                    _submit();
+                  }
+                },
               ),
+              if (_isRegisterMode) ...[
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _confirmPasswordController,
+                  obscureText: _obscureConfirmPassword,
+                  decoration: InputDecoration(
+                    labelText: 'Re-enter password',
+                    prefixIcon: const Icon(Icons.verified_user_outlined),
+                    suffixIcon: IconButton(
+                      onPressed: () {
+                        setState(
+                          () => _obscureConfirmPassword = !_obscureConfirmPassword,
+                        );
+                      },
+                      icon: Icon(
+                        _obscureConfirmPassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                      ),
+                    ),
+                  ),
+                  validator: (value) {
+                    if (!_isRegisterMode) {
+                      return null;
+                    }
+                    if (value == null || value.isEmpty) {
+                      return 'Re-enter your password';
+                    }
+                    if (value != _passwordController.text) {
+                      return 'Passwords do not match';
+                    }
+                    return null;
+                  },
+                  onFieldSubmitted: (_) => _submit(),
+                ),
+              ],
               if (_errorText != null) ...[
                 const SizedBox(height: 14),
                 Text(
@@ -211,12 +287,50 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ],
               const SizedBox(height: 24),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _rememberMe,
+                onChanged: _isSubmitting
+                    ? null
+                    : (value) {
+                        setState(() => _rememberMe = value ?? true);
+                      },
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('Remember me'),
+                subtitle: const Text('Keep me signed in after browser refresh or app restart'),
+              ),
+              const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _submit,
-                  icon: const Icon(Icons.login),
-                  label: const Text('Enter Panel'),
+                  onPressed: _isSubmitting ? null : _submit,
+                  icon: Icon(_isRegisterMode ? Icons.person_add_alt_1 : Icons.login),
+                  label: Text(
+                    _isSubmitting
+                        ? 'Please wait...'
+                        : _isRegisterMode
+                            ? 'Create Account'
+                            : 'Enter Panel',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton(
+                  onPressed: _isSubmitting
+                      ? null
+                      : () {
+                          setState(() {
+                            _isRegisterMode = !_isRegisterMode;
+                            _errorText = null;
+                          });
+                        },
+                  child: Text(
+                    _isRegisterMode
+                        ? 'Already have an account? Log in'
+                        : 'Need an account? Create one',
+                  ),
                 ),
               ),
             ],

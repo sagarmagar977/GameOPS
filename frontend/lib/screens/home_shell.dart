@@ -14,7 +14,7 @@ class HomeShell extends StatelessWidget {
   });
 
   final AppUser user;
-  final VoidCallback onLogout;
+  final Future<void> Function() onLogout;
 
   @override
   Widget build(BuildContext context) {
@@ -38,24 +38,30 @@ class HomeShell extends StatelessWidget {
                   padding: EdgeInsets.fromLTRB(compact ? 12 : 20, 18, compact ? 12 : 20, compact ? 12 : 20),
                   child: Column(
                     children: [
-                      _buildHeader(context, compact),
-                      const SizedBox(height: 18),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.78),
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: const Color(0xFFDCE7EA)),
-                        ),
-                        child: const TabBar(
-                          indicatorSize: TabBarIndicatorSize.tab,
-                          tabs: [
-                            Tab(icon: Icon(Icons.dashboard_outlined)),
-                            Tab(icon: Icon(Icons.sports_esports_outlined)),
-                            Tab(icon: Icon(Icons.password_outlined)),
-                            Tab(icon: Icon(Icons.search_outlined)),
-                          ],
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.78),
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(color: const Color(0xFFDCE7EA)),
+                              ),
+                              child: const TabBar(
+                                indicatorSize: TabBarIndicatorSize.tab,
+                                tabs: [
+                                  Tab(icon: Icon(Icons.dashboard_outlined)),
+                                  Tab(icon: Icon(Icons.sports_esports_outlined)),
+                                  Tab(icon: Icon(Icons.password_outlined)),
+                                  Tab(icon: Icon(Icons.search_outlined)),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          _buildProfileButton(context),
+                        ],
                       ),
                       const SizedBox(height: 18),
                       Expanded(
@@ -79,70 +85,86 @@ class HomeShell extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context, bool compact) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 18, vertical: compact ? 14 : 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.84),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFDCE7EA)),
+  Widget _buildProfileButton(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(22),
+      onTap: () => _showProfileCard(context),
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.84),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFDCE7EA)),
+        ),
+        child: _buildLogo(),
       ),
-      child: compact
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    _buildLogo(),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('GameOps', style: Theme.of(context).textTheme.titleLarge),
-                          Text(
-                            user.isAdmin ? 'Admin control panel' : 'Operator view',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
-                      ),
+    );
+  }
+
+  Future<void> _showProfileCard(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 340),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFDCE7EA)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _buildLogo(),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('GameOps', style: Theme.of(context).textTheme.titleLarge),
+                        Text(
+                          user.isAdmin ? 'Admin control panel' : 'Operator view',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      tooltip: 'Log out',
-                      onPressed: onLogout,
-                      icon: const Icon(Icons.logout),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _buildRoleChip(),
-              ],
-            )
-          : Row(
-              children: [
-                _buildLogo(),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('GameOps', style: Theme.of(context).textTheme.titleLarge),
-                      Text(
-                        user.isAdmin ? 'Admin control panel' : 'Operator view',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
                   ),
-                ),
-                _buildRoleChip(),
-                const SizedBox(width: 12),
-                IconButton(
-                  tooltip: 'Log out',
-                  onPressed: onLogout,
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildRoleChip(),
+              const SizedBox(height: 12),
+              Text(
+                user.email,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await onLogout();
+                  },
                   icon: const Icon(Icons.logout),
+                  label: const Text('Log out'),
                 ),
-              ],
-            ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -166,7 +188,7 @@ class HomeShell extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        '${user.username} - ${user.role.name}',
+        '${user.email} - ${user.role.name}',
         style: const TextStyle(color: Colors.white),
       ),
     );

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'core/api_client.dart';
+import 'core/session_storage.dart';
 import 'core/theme.dart';
 import 'models/app_user.dart';
 import 'screens/home_shell.dart';
@@ -13,13 +15,74 @@ class GameOpsApp extends StatefulWidget {
 }
 
 class _GameOpsAppState extends State<GameOpsApp> {
+  final _api = const ApiClient();
+  final _sessionStorage = SessionStorage();
   AppUser? currentUser;
+  bool _isInitializing = true;
 
-  void _handleLogin(AppUser user) {
+  @override
+  void initState() {
+    super.initState();
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    final savedUser = await _sessionStorage.loadSession();
+
+    if (savedUser == null) {
+      if (mounted) {
+        setState(() => _isInitializing = false);
+      }
+      return;
+    }
+
+    ApiClient.setAuthToken(savedUser.token);
+
+    try {
+      final userJson = await _api.me();
+      final restoredUser = AppUser.fromUserJson(userJson, token: savedUser.token);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        currentUser = restoredUser;
+        _isInitializing = false;
+      });
+    } catch (_) {
+      ApiClient.setAuthToken(null);
+      await _sessionStorage.clearSession();
+
+      if (mounted) {
+        setState(() => _isInitializing = false);
+      }
+    }
+  }
+
+  Future<void> _handleLogin(AppUser user, bool rememberMe) async {
+    ApiClient.setAuthToken(user.token);
+    if (rememberMe) {
+      await _sessionStorage.saveSession(user);
+    } else {
+      await _sessionStorage.clearSession();
+    }
+
+    if (!mounted) {
+      return;
+    }
+
     setState(() => currentUser = user);
   }
 
-  void _handleLogout() {
+  Future<void> _handleLogout() async {
+    ApiClient.setAuthToken(null);
+    await _sessionStorage.clearSession();
+
+    if (!mounted) {
+      return;
+    }
+
     setState(() => currentUser = null);
   }
 
@@ -29,7 +92,11 @@ class _GameOpsAppState extends State<GameOpsApp> {
       title: 'GameOps',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
-      home: currentUser == null
+      home: _isInitializing
+          ? const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            )
+          : currentUser == null
           ? LoginScreen(onLogin: _handleLogin)
           : HomeShell(user: currentUser!, onLogout: _handleLogout),
     );

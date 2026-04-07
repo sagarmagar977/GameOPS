@@ -31,7 +31,7 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
   bool isSaving = false;
   bool isPrimary = true;
   bool revealPasswords = false;
-  bool revealPasswordsInDetails = false;
+  bool showPasswordsInList = false;
   String? selectedGameId;
   String? editingId;
   String? errorText;
@@ -176,6 +176,7 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
       labelController.clear();
       notesController.clear();
       isPrimary = true;
+      revealPasswords = false;
       errorText = null;
       if (clearSelectedGame) {
         selectedGameId = games.isNotEmpty ? games.first.id : null;
@@ -220,6 +221,8 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final selectedCredentials = _credentialsForGame(selectedGameId);
+
     return PageFrame(
       title: widget.isAdmin ? 'Password Manager' : 'Credentials View',
       subtitle: widget.isAdmin
@@ -228,40 +231,52 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
       child: SectionCard(
         title: 'Game Credentials',
         expandChild: true,
-        child: _buildGameFocusedView(),
+        child: Column(
+          children: [
+            _buildTopBar(selectedCredentials),
+            const SizedBox(height: 16),
+            _buildGameSelector(),
+            if (errorText != null) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(errorText!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Expanded(child: _buildSelectedCredentialRows(selectedCredentials)),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildGameFocusedView() {
-    final selectedGame = _selectedGame;
-    final selectedCredentials = _credentialsForGame(selectedGameId);
-
-    return Column(
+  Widget _buildTopBar(List<Credential> selectedCredentials) {
+    return Row(
       children: [
-        _buildGameSelector(),
-        const SizedBox(height: 16),
-        _buildSelectedGamePanel(selectedGame, selectedCredentials),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                '${games.length} game${games.length == 1 ? '' : 's'} tracked',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-          ],
-        ),
-        if (errorText != null) ...[
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(errorText!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        Expanded(
+          child: Text(
+            selectedGameId == null
+                ? 'Choose a game to view credentials'
+                : '${selectedCredentials.length} credential${selectedCredentials.length == 1 ? '' : 's'} saved',
+            style: Theme.of(context).textTheme.titleMedium,
           ),
-        ],
-        const SizedBox(height: 16),
-        Expanded(child: _buildGameRows()),
+        ),
+        IconButton(
+          tooltip: showPasswordsInList ? 'Hide passwords' : 'Show passwords',
+          onPressed: selectedCredentials.isEmpty
+              ? null
+              : () {
+                  setState(() => showPasswordsInList = !showPasswordsInList);
+                },
+          icon: Icon(showPasswordsInList ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+        ),
+        if (widget.isAdmin)
+          FilledButton.icon(
+            onPressed: isSaving ? null : () => _openEditor(),
+            icon: const Icon(Icons.add),
+            label: const Text('Add'),
+          ),
       ],
     );
   }
@@ -273,84 +288,12 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
       onChanged: games.isEmpty ? null : (value) => setState(() => selectedGameId = value),
       decoration: const InputDecoration(
         labelText: 'Selected Game',
-        helperText: 'Choose which game you are saving credentials for.',
+        helperText: 'Choose which game you want to view saved credentials for.',
       ),
     );
   }
 
-  Widget _buildSelectedGamePanel(Game? game, List<Credential> selectedCredentials) {
-    if (isLoading) {
-      return _emptyState('Loading selected game...');
-    }
-
-    if (game == null) {
-      return _emptyState('Add a game first, then you can store logins under it.');
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFC),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFDCE4E8)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(game.name, style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${selectedCredentials.length} credential${selectedCredentials.length == 1 ? '' : 's'} saved for this game',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-              if (widget.isAdmin)
-                FilledButton.icon(
-                  onPressed: isSaving ? null : () => _openEditor(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (selectedCredentials.isEmpty)
-            Text(
-              widget.isAdmin
-                  ? 'No login saved for this game yet. Use Add to create one.'
-                  : 'No login is available for this game yet.',
-            )
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: selectedCredentials.take(4).map((credential) {
-                final label = credential.label.trim().isEmpty ? credential.username : credential.label.trim();
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: const Color(0xFFDCE4E8)),
-                  ),
-                  child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                );
-              }).toList(),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGameRows() {
+  Widget _buildSelectedCredentialRows(List<Credential> selectedCredentials) {
     if (isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -360,171 +303,21 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
     if (games.isEmpty) {
       return _emptyState('No games added yet.');
     }
+    if (selectedGameId == null) {
+      return _emptyState('Choose a game first.');
+    }
+    if (selectedCredentials.isEmpty) {
+      return _emptyState(
+        widget.isAdmin
+            ? 'No credentials saved for this game yet. Use Add to create one.'
+            : 'No credentials are available for this game yet.',
+      );
+    }
 
     return ListView.separated(
-      itemCount: games.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, index) => _buildGameRow(games[index]),
-    );
-  }
-
-  Widget _buildGameRow(Game game) {
-    final gameCredentials = _credentialsForGame(game.id);
-    final isSelected = game.id == selectedGameId;
-    final primaryCredential = gameCredentials.cast<Credential?>().firstWhere(
-      (credential) => credential?.isPrimary ?? false,
-      orElse: () => gameCredentials.isNotEmpty ? gameCredentials.first : null,
-    );
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () {
-        setState(() => selectedGameId = game.id);
-        _openGameCredentialsSheet(game);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFEEF8F5) : const Color(0xFFF9FBFC),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: isSelected ? const Color(0xFF0E7C66) : const Color(0xFFDCE4E8)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    game.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    gameCredentials.isEmpty
-                        ? 'No credentials saved'
-                        : '${gameCredentials.length} credential${gameCredentials.length == 1 ? '' : 's'} - ${primaryCredential == null ? 'No primary set' : 'Primary: ${primaryCredential.username}'}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.62)),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: const Color(0xFFDCE4E8)),
-              ),
-              child: Text(
-                '${gameCredentials.length}',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(Icons.chevron_right_rounded),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openGameCredentialsSheet(Game game) async {
-    setState(() {
-      selectedGameId = game.id;
-      revealPasswordsInDetails = false;
-    });
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.76,
-          minChildSize: 0.52,
-          maxChildSize: 0.92,
-          builder: (context, scrollController) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-              child: Material(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: _buildGameDetailsSheet(game, scrollController),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildGameDetailsSheet(Game game, ScrollController scrollController) {
-    final gameCredentials = _credentialsForGame(game.id);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(game.name, style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Username and password list for this game.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              tooltip: revealPasswordsInDetails ? 'Hide passwords' : 'Show passwords',
-              onPressed: () => setState(() => revealPasswordsInDetails = !revealPasswordsInDetails),
-              icon: Icon(revealPasswordsInDetails ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-            ),
-            IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close)),
-          ],
-        ),
-        const SizedBox(height: 16),
-        if (widget.isAdmin)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: FilledButton.icon(
-              onPressed: isSaving
-                  ? null
-                  : () async {
-                      Navigator.of(context).pop();
-                      await _openEditor();
-                    },
-              icon: const Icon(Icons.add),
-              label: Text('Add credential for ${game.name}'),
-            ),
-          ),
-        if (gameCredentials.isEmpty)
-          _emptyState('No credentials saved for ${game.name} yet.')
-        else
-          Expanded(
-            child: ListView.separated(
-              controller: scrollController,
-              itemCount: gameCredentials.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) => _buildCredentialCard(gameCredentials[index]),
-            ),
-          ),
-      ],
+      itemCount: selectedCredentials.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) => _buildCredentialCard(selectedCredentials[index]),
     );
   }
 
@@ -578,7 +371,7 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
           const SizedBox(height: 14),
           _detailLine('Username', credential.username),
           const SizedBox(height: 8),
-          _detailLine('Password', revealPasswordsInDetails ? credential.password : '********'),
+          _detailLine('Password', showPasswordsInList ? credential.password : '********'),
           if (credential.notes.trim().isNotEmpty) ...[
             const SizedBox(height: 8),
             _detailLine('Notes', credential.notes.trim()),
@@ -711,18 +504,10 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
     );
   }
 
-  Game? get _selectedGame {
-    if (selectedGameId == null) return null;
-    for (final game in games) {
-      if (game.id == selectedGameId) {
-        return game;
-      }
-    }
-    return null;
-  }
-
   List<Credential> _credentialsForGame(String? gameId) {
-    if (gameId == null) return const [];
+    if (gameId == null) {
+      return const [];
+    }
 
     final filtered = credentials.where((credential) => credential.gameId == gameId).toList();
     filtered.sort((a, b) {

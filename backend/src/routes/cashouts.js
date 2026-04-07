@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../lib/db.js';
 import { fail, ok } from '../lib/http.js';
+import { requireAdmin } from '../middleware/auth.js';
 import { cashoutSchema } from '../validators/gameValidators.js';
 
 const router = Router();
@@ -26,7 +27,7 @@ router.get('/', async (_req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   const parsed = cashoutSchema.safeParse(req.body);
   if (!parsed.success) {
     return fail(res, 'Invalid cashout payload', 400, parsed.error.flatten());

@@ -1,5 +1,14 @@
 create extension if not exists "pgcrypto";
 
+create table if not exists public.app_users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  password_hash text not null,
+  role text not null default 'operator' check (role in ('admin', 'operator')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.games (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -90,6 +99,11 @@ begin
   return new;
 end;
 $$;
+
+drop trigger if exists app_users_set_updated_at on public.app_users;
+create trigger app_users_set_updated_at
+before update on public.app_users
+for each row execute function public.set_updated_at();
 
 drop trigger if exists games_set_updated_at on public.games;
 create trigger games_set_updated_at

@@ -31,4 +31,8 @@ export const env = {
   databaseUrl: process.env.DATABASE_URL || '',
   databasePoolerUrl: process.env.DATABASE_POOLER_URL || '',
   databaseSessionPoolerUrl: process.env.DATABASE_SESSION_POOLER_URL || '',
+  jwtSecret: process.env.JWT_SECRET || 'change-this-jwt-secret',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  adminEmail: (process.env.ADMIN_EMAIL || 'admin@example.com').trim().toLowerCase(),
+  adminPassword: process.env.ADMIN_PASSWORD || 'admin123',
 };

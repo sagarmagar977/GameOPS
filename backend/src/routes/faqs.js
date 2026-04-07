@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../lib/db.js';
 import { fail, ok } from '../lib/http.js';
+import { requireAdmin } from '../middleware/auth.js';
 import { faqSchema } from '../validators/gameValidators.js';
 
 const router = Router();
@@ -33,7 +34,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireAdmin, async (req, res) => {
   const parsed = faqSchema.safeParse(req.body);
   if (!parsed.success) {
     return fail(res, 'Invalid FAQ payload', 400, parsed.error.flatten());
@@ -58,7 +59,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAdmin, async (req, res) => {
   const parsed = faqSchema.partial().safeParse(req.body);
   if (!parsed.success) {
     return fail(res, 'Invalid FAQ payload', 400, parsed.error.flatten());
@@ -82,7 +83,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAdmin, async (req, res) => {
   try {
     await query('delete from public.faqs where id = $1', [req.params.id]);
     ok(res, { id: req.params.id });

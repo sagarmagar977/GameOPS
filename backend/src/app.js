@@ -1,5 +1,7 @@
 import cors from 'cors';
 import express from 'express';
+import swaggerUi from 'swagger-ui-express';
+import authRoutes from './routes/auth.js';
 import healthRoutes from './routes/health.js';
 import gameRoutes from './routes/games.js';
 import credentialRoutes from './routes/credentials.js';
@@ -8,6 +10,8 @@ import cashoutRoutes from './routes/cashouts.js';
 import faqRoutes from './routes/faqs.js';
 import discussionRoutes from './routes/discussions.js';
 import taskRoutes from './routes/tasks.js';
+import { openApiDocument } from './docs/openapi.js';
+import { authenticate } from './middleware/auth.js';
 
 export function createApp() {
   const app = express();
@@ -15,7 +19,13 @@ export function createApp() {
   app.use(cors());
   app.use(express.json());
 
+  app.use('/api/auth', authRoutes);
   app.use('/api/health', healthRoutes);
+  app.get('/api/docs.json', (_req, res) => {
+    res.json(openApiDocument);
+  });
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
+  app.use(authenticate);
   app.use('/api/games', gameRoutes);
   app.use('/api/credentials', credentialRoutes);
   app.use('/api/cashout-rules', cashoutRuleRoutes);

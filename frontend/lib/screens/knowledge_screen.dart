@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/api_client.dart';
-import '../models/discussion.dart';
 import '../models/faq.dart';
 import '../models/game.dart';
 import '../widgets/page_frame.dart';
@@ -26,19 +25,13 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
   final faqQuestionController = TextEditingController();
   final faqAnswerController = TextEditingController();
   final faqTagsController = TextEditingController();
-  final discussionAuthorController = TextEditingController();
-  final discussionContentController = TextEditingController();
 
   List<Game> games = const [];
   List<Faq> faqs = const [];
-  List<Discussion> discussions = const [];
   bool isLoading = true;
   bool faqApproved = true;
-  bool discussionApproved = false;
   String? selectedFaqGameId;
-  String? selectedDiscussionGameId;
   String? editingFaqId;
-  String? editingDiscussionId;
   String? errorText;
 
   @override
@@ -53,8 +46,6 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     faqQuestionController.dispose();
     faqAnswerController.dispose();
     faqTagsController.dispose();
-    discussionAuthorController.dispose();
-    discussionContentController.dispose();
     super.dispose();
   }
 
@@ -68,15 +59,12 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
       final query = searchController.text.trim();
       final gamesJson = await api.getList('/games');
       final faqsJson = await api.getList('/faqs', query: query.isEmpty ? null : {'q': query});
-      final discussionsJson = await api.getList('/discussions', query: query.isEmpty ? null : {'q': query});
 
       final loadedGames = gamesJson.map((item) => Game.fromJson(item as Map<String, dynamic>)).toList();
       setState(() {
         games = loadedGames;
         faqs = faqsJson.map((item) => Faq.fromJson(item as Map<String, dynamic>)).toList();
-        discussions = discussionsJson.map((item) => Discussion.fromJson(item as Map<String, dynamic>)).toList();
         selectedFaqGameId ??= loadedGames.isNotEmpty ? loadedGames.first.id : null;
-        selectedDiscussionGameId ??= loadedGames.isNotEmpty ? loadedGames.first.id : null;
       });
     } catch (error) {
       setState(() => errorText = '$error');
@@ -121,37 +109,6 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     }
   }
 
-  Future<void> _saveDiscussion() async {
-    if (discussionAuthorController.text.trim().isEmpty ||
-        discussionContentController.text.trim().isEmpty) {
-      setState(() => errorText = 'Discussion author and content are required.');
-      return;
-    }
-
-    final payload = {
-      'game_id': selectedDiscussionGameId,
-      'author_name': discussionAuthorController.text.trim(),
-      'content': discussionContentController.text.trim(),
-      'parent_id': null,
-      'approved': discussionApproved,
-    };
-
-    try {
-      if (editingDiscussionId == null) {
-        await api.post('/discussions', payload);
-      } else {
-        await api.put('/discussions/$editingDiscussionId', payload);
-      }
-      _resetDiscussionForm();
-      if (mounted && Navigator.of(context).canPop()) {
-        Navigator.of(context).pop();
-      }
-      await _load();
-    } catch (error) {
-      setState(() => errorText = '$error');
-    }
-  }
-
   Future<void> _deleteFaq(Faq faq) async {
     final confirmed = await _confirmDelete('Delete FAQ?', faq.question);
     if (confirmed != true) return;
@@ -160,21 +117,6 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
       await api.delete('/faqs/${faq.id}');
       if (editingFaqId == faq.id) {
         _resetFaqForm();
-      }
-      await _load();
-    } catch (error) {
-      setState(() => errorText = '$error');
-    }
-  }
-
-  Future<void> _deleteDiscussion(Discussion discussion) async {
-    final confirmed = await _confirmDelete('Delete discussion?', discussion.authorName);
-    if (confirmed != true) return;
-
-    try {
-      await api.delete('/discussions/${discussion.id}');
-      if (editingDiscussionId == discussion.id) {
-        _resetDiscussionForm();
       }
       await _load();
     } catch (error) {
@@ -209,18 +151,6 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     });
   }
 
-  void _startDiscussionEdit(Discussion discussion) {
-    final game = _findGameByName(discussion.gameName);
-    setState(() {
-      editingDiscussionId = discussion.id;
-      selectedDiscussionGameId = game?.id ?? selectedDiscussionGameId;
-      discussionAuthorController.text = discussion.authorName;
-      discussionContentController.text = discussion.content;
-      discussionApproved = discussion.approved;
-      errorText = null;
-    });
-  }
-
   void _resetFaqForm() {
     setState(() {
       editingFaqId = null;
@@ -232,16 +162,6 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     });
   }
 
-  void _resetDiscussionForm() {
-    setState(() {
-      editingDiscussionId = null;
-      discussionAuthorController.clear();
-      discussionContentController.clear();
-      discussionApproved = false;
-      errorText = null;
-    });
-  }
-
   Future<void> _openFaqEditor({Faq? faq}) async {
     if (faq == null) {
       _resetFaqForm();
@@ -249,17 +169,9 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
       _startFaqEdit(faq);
     }
     await _showSheet(_buildFaqFormSheet());
-    if (mounted) _resetFaqForm();
-  }
-
-  Future<void> _openDiscussionEditor({Discussion? discussion}) async {
-    if (discussion == null) {
-      _resetDiscussionForm();
-    } else {
-      _startDiscussionEdit(discussion);
+    if (mounted) {
+      _resetFaqForm();
     }
-    await _showSheet(_buildDiscussionFormSheet());
-    if (mounted) _resetDiscussionForm();
   }
 
   Future<void> _showSheet(Widget child) {
@@ -290,8 +202,8 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     return PageFrame(
       title: widget.isAdmin ? 'Knowledge Base' : 'Knowledge View',
       subtitle: widget.isAdmin
-          ? 'Keep FAQs and discussions in compact rows with quick actions.'
-          : 'Search approved answers and browse operator discussion notes.',
+          ? 'Keep FAQs in compact rows with quick actions.'
+          : 'Search approved answers for operators.',
       child: Column(
         children: [
           Row(
@@ -322,15 +234,7 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
             ),
           ],
           const SizedBox(height: 20),
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(child: _buildFaqSection()),
-                const SizedBox(width: 20),
-                Expanded(child: _buildDiscussionSection()),
-              ],
-            ),
-          ),
+          Expanded(child: _buildFaqSection()),
         ],
       ),
     );
@@ -365,38 +269,13 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     );
   }
 
-  Widget _buildDiscussionSection() {
-    return SectionCard(
-      title: 'Discussions',
-      expandChild: true,
-      child: Column(
-        children: [
-          if (widget.isAdmin)
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${discussions.length} item${discussions.length == 1 ? '' : 's'}',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: () => _openDiscussionEditor(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add'),
-                ),
-              ],
-            ),
-          if (widget.isAdmin) const SizedBox(height: 14),
-          Expanded(child: _buildDiscussionList()),
-        ],
-      ),
-    );
-  }
-
   Widget _buildFaqList() {
-    if (isLoading) return const Center(child: CircularProgressIndicator());
-    if (faqs.isEmpty) return _emptyState('No FAQs found.');
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (faqs.isEmpty) {
+      return _emptyState('No FAQs found.');
+    }
 
     return ListView.separated(
       itemCount: faqs.length,
@@ -444,52 +323,6 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     );
   }
 
-  Widget _buildDiscussionList() {
-    if (isLoading) return const Center(child: CircularProgressIndicator());
-    if (discussions.isEmpty) return _emptyState('No discussions found.');
-
-    return ListView.separated(
-      itemCount: discussions.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final discussion = discussions[index];
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF9FBFC),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFDCE4E8)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      discussion.authorName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      discussion.gameName.isEmpty ? discussion.content : discussion.gameName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.62)),
-                    ),
-                  ],
-                ),
-              ),
-              if (widget.isAdmin) _discussionMenuButton(discussion),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   Widget _faqMenuButton(Faq faq) {
     return PopupMenuButton<String>(
       onSelected: (value) {
@@ -497,23 +330,6 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
           _openFaqEditor(faq: faq);
         } else if (value == 'delete') {
           _deleteFaq(faq);
-        }
-      },
-      itemBuilder: (context) => const [
-        PopupMenuItem(value: 'edit', child: Text('Edit')),
-        PopupMenuItem(value: 'delete', child: Text('Delete')),
-      ],
-      child: _menuShell(),
-    );
-  }
-
-  Widget _discussionMenuButton(Discussion discussion) {
-    return PopupMenuButton<String>(
-      onSelected: (value) {
-        if (value == 'edit') {
-          _openDiscussionEditor(discussion: discussion);
-        } else if (value == 'delete') {
-          _deleteDiscussion(discussion);
         }
       },
       itemBuilder: (context) => const [
@@ -587,63 +403,6 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     );
   }
 
-  Widget _buildDiscussionFormSheet() {
-    final isEditing = editingDiscussionId != null;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isEditing ? 'Edit Discussion' : 'Add Discussion',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 4),
-                  Text('Create one discussion entry at a time.', style: Theme.of(context).textTheme.bodyMedium),
-                ],
-              ),
-            ),
-            IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close)),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _gameDropdown(
-          value: selectedDiscussionGameId,
-          onChanged: (value) => setState(() => selectedDiscussionGameId = value),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: discussionAuthorController,
-          decoration: const InputDecoration(labelText: 'Author name'),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: discussionContentController,
-          maxLines: 3,
-          decoration: const InputDecoration(labelText: 'Discussion note'),
-        ),
-        SwitchListTile(
-          value: discussionApproved,
-          onChanged: (value) => setState(() => discussionApproved = value),
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Approved'),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: _saveDiscussion,
-            child: Text(isEditing ? 'Update Discussion' : 'Create Discussion'),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _gameDropdown({
     required String? value,
     required ValueChanged<String?> onChanged,
@@ -661,7 +420,9 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
 
   Game? _findGameByName(String name) {
     for (final game in games) {
-      if (game.name == name) return game;
+      if (game.name == name) {
+        return game;
+      }
     }
     return null;
   }
