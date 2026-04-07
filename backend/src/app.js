@@ -4,6 +4,7 @@ import swaggerUi from 'swagger-ui-express';
 import authRoutes from './routes/auth.js';
 import healthRoutes from './routes/health.js';
 import gameRoutes from './routes/games.js';
+import dashboardRoutes from './routes/dashboard.js';
 import credentialRoutes from './routes/credentials.js';
 import cashoutRuleRoutes from './routes/cashoutRules.js';
 import cashoutRoutes from './routes/cashouts.js';
@@ -26,6 +27,7 @@ export function createApp() {
   });
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
   app.use(authenticate);
+  app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/games', gameRoutes);
   app.use('/api/credentials', credentialRoutes);
   app.use('/api/cashout-rules', cashoutRuleRoutes);

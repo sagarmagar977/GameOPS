@@ -4,7 +4,10 @@ import { env } from '../config/env.js';
 let pool;
 
 export function getDb() {
-  const connectionString = env.databaseUrl || env.databaseSessionPoolerUrl || env.databasePoolerUrl;
+  // Prefer Supabase pooler connections in hosted environments like Render.
+  // Direct database URLs on port 5432 can fail depending on network routing.
+  const connectionString =
+    env.databasePoolerUrl || env.databaseSessionPoolerUrl || env.databaseUrl;
 
   if (!connectionString) {
     throw new Error('Database is not configured. Add DATABASE_URL or a pooler URL.');

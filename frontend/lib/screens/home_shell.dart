@@ -6,7 +6,7 @@ import 'games_screen.dart';
 import 'knowledge_screen.dart';
 import 'password_manager_screen.dart';
 
-class HomeShell extends StatelessWidget {
+class HomeShell extends StatefulWidget {
   const HomeShell({
     super.key,
     required this.user,
@@ -17,68 +17,92 @@ class HomeShell extends StatelessWidget {
   final Future<void> Function() onLogout;
 
   @override
-  Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 4,
-      child: Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFFEAF5F6), Color(0xFFF5FAFB), Color(0xFFE8F1F7)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final compact = constraints.maxWidth < 700;
+  State<HomeShell> createState() => _HomeShellState();
+}
 
-                return Padding(
-                  padding: EdgeInsets.fromLTRB(compact ? 12 : 20, 18, compact ? 12 : 20, compact ? 12 : 20),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.78),
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(color: const Color(0xFFDCE7EA)),
-                              ),
-                              child: const TabBar(
-                                indicatorSize: TabBarIndicatorSize.tab,
-                                tabs: [
-                                  Tab(icon: Icon(Icons.dashboard_outlined)),
-                                  Tab(icon: Icon(Icons.sports_esports_outlined)),
-                                  Tab(icon: Icon(Icons.password_outlined)),
-                                  Tab(icon: Icon(Icons.search_outlined)),
-                                ],
-                              ),
+class _HomeShellState extends State<HomeShell> {
+  int _selectedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final tabs = [
+      DashboardScreen(isAdmin: widget.user.isAdmin),
+      GamesScreen(isAdmin: widget.user.isAdmin),
+      PasswordManagerScreen(isAdmin: widget.user.isAdmin),
+      KnowledgeScreen(isAdmin: widget.user.isAdmin),
+    ];
+
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFEAF5F6), Color(0xFFF5FAFB), Color(0xFFE8F1F7)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 700;
+
+              return Padding(
+                padding: EdgeInsets.fromLTRB(compact ? 12 : 20, 18, compact ? 12 : 20, compact ? 12 : 20),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.78),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: const Color(0xFFDCE7EA)),
+                            ),
+                            child: Row(
+                              children: List.generate(_tabIcons.length, (index) {
+                                final selected = index == _selectedIndex;
+                                return Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(16),
+                                      onTap: () => setState(() => _selectedIndex = index),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 180),
+                                        curve: Curves.easeOut,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        decoration: BoxDecoration(
+                                          color: selected
+                                              ? Theme.of(context).colorScheme.primary.withOpacity(0.12)
+                                              : Colors.transparent,
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                        child: Icon(
+                                          _tabIcons[index],
+                                          color: selected
+                                              ? Theme.of(context).colorScheme.primary
+                                              : Theme.of(context).colorScheme.onSurface.withOpacity(0.72),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          _buildProfileButton(context),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      Expanded(
-                        child: TabBarView(
-                          children: [
-                            DashboardScreen(isAdmin: user.isAdmin),
-                            GamesScreen(isAdmin: user.isAdmin),
-                            PasswordManagerScreen(isAdmin: user.isAdmin),
-                            KnowledgeScreen(isAdmin: user.isAdmin),
-                          ],
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
+                        const SizedBox(width: 12),
+                        _buildProfileButton(context),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Expanded(child: tabs[_selectedIndex]),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -130,7 +154,7 @@ class HomeShell extends StatelessWidget {
                       children: [
                         Text('GameOps', style: Theme.of(context).textTheme.titleLarge),
                         Text(
-                          user.isAdmin ? 'Admin control panel' : 'Operator view',
+                          widget.user.isAdmin ? 'Admin control panel' : 'Operator view',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ],
@@ -146,7 +170,7 @@ class HomeShell extends StatelessWidget {
               _buildRoleChip(),
               const SizedBox(height: 12),
               Text(
-                user.email,
+                widget.user.email,
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
               const SizedBox(height: 16),
@@ -155,7 +179,7 @@ class HomeShell extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: () async {
                     Navigator.of(context).pop();
-                    await onLogout();
+                    await widget.onLogout();
                   },
                   icon: const Icon(Icons.logout),
                   label: const Text('Log out'),
@@ -188,9 +212,16 @@ class HomeShell extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        '${user.email} - ${user.role.name}',
+        '${widget.user.email} - ${widget.user.role.name}',
         style: const TextStyle(color: Colors.white),
       ),
     );
   }
 }
+
+const _tabIcons = [
+  Icons.dashboard_outlined,
+  Icons.sports_esports_outlined,
+  Icons.password_outlined,
+  Icons.search_outlined,
+];

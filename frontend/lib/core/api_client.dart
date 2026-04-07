@@ -27,6 +27,18 @@ class ApiClient {
     return List<dynamic>.from(body['data'] as List<dynamic>);
   }
 
+  Future<Map<String, dynamic>> get(String path, {Map<String, String>? query}) async {
+    final response = await _send(
+      path,
+      (baseUrl) => http.get(
+        Uri.parse('$baseUrl$path').replace(queryParameters: query),
+        headers: _headers(),
+      ),
+    );
+    final body = _decode(response);
+    return Map<String, dynamic>.from(body['data'] as Map<String, dynamic>);
+  }
+
   Future<Map<String, dynamic>> login(String email, String password) async {
     final response = await _send(
       '/auth/login',

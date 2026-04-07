@@ -37,9 +37,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<_DashboardData> _load() async {
-    final gamesJson = await api.getList('/games');
-    final rulesJson = await api.getList('/cashout-rules');
-    final cashoutsJson = await api.getList('/cashouts');
+    final dashboardJson = await api.get('/dashboard');
+    final gamesJson = List<dynamic>.from(dashboardJson['games'] as List<dynamic>);
+    final rulesJson = List<dynamic>.from(dashboardJson['rules'] as List<dynamic>);
+    final cashoutsJson = List<dynamic>.from(dashboardJson['cashouts'] as List<dynamic>);
 
     final games = gamesJson.map((item) => Game.fromJson(item as Map<String, dynamic>)).toList();
     final rules = rulesJson.map((item) => CashoutRule.fromJson(item as Map<String, dynamic>)).toList();
@@ -143,7 +144,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ? 'See which games are live and track cashouts from the database.'
           : 'Check available games and read the latest cashout summary.',
       child: FutureBuilder<_DashboardData>(
-        future: _load().then((value) => value),
+        future: _load(),
         key: ValueKey(_reloadSeed),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
