@@ -160,7 +160,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final maxToday = todayCashouts.isEmpty
               ? 0.0
               : todayCashouts.map((cashout) => cashout.amount).reduce((a, b) => a > b ? a : b);
+          final minToday = todayCashouts.isEmpty
+              ? 0.0
+              : todayCashouts.map((cashout) => cashout.amount).reduce((a, b) => a < b ? a : b);
           final todayCount = todayCashouts.length;
+          final todayTotal = todayCashouts.fold<double>(0, (sum, cashout) => sum + cashout.amount);
           final latestAmount = latestCashout?.amount ?? 0.0;
 
           return LayoutBuilder(
@@ -169,34 +173,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
               return ListView(
                 children: [
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      _metricCard('Live Games', activeGames.length.toString()),
-                      _metricCard('Cashouts Today', todayCount.toString()),
-                      _metricCard('Max Today', maxToday.toStringAsFixed(2)),
-                      _metricCard('Latest Cashout', latestAmount.toStringAsFixed(2)),
-                    ],
-                  ),
+                  compact
+                      ? Column(
+                          children: [
+                            _buildLiveGamesCard(activeGames),
+                            const SizedBox(height: 16),
+                            _buildCashoutSummaryCard(
+                              todayCount: todayCount,
+                              maxToday: maxToday,
+                              minToday: minToday,
+                              latestAmount: latestAmount,
+                              todayTotal: todayTotal,
+                            ),
+                          ],
+                        )
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              flex: 4,
+                              child: _buildLiveGamesCard(activeGames),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              flex: 8,
+                              child: _buildCashoutSummaryCard(
+                                todayCount: todayCount,
+                                maxToday: maxToday,
+                                minToday: minToday,
+                                latestAmount: latestAmount,
+                                todayTotal: todayTotal,
+                              ),
+                            ),
+                          ],
+                        ),
                   const SizedBox(height: 20),
-                  SectionCard(
-                    title: 'Available Games',
-                    child: activeGames.isEmpty
-                        ? const Text('No games are switched on right now.')
-                        : Column(
-                            children: activeGames.map((game) {
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: _dashboardRow(
-                                  title: game.name,
-                                  subtitle: game.websiteUrl.isEmpty ? game.slug : game.websiteUrl,
-                                  trailing: _pill('Live', Colors.green),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                  ),
+                  _buildAvailableGamesCard(activeGames),
                   const SizedBox(height: 20),
                   if (compact) ...[
                     _buildRulesCard(data.rules),
@@ -222,7 +234,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _metricCard(String label, String value) {
     return Container(
-      width: 180,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFF9FBFC),
@@ -235,6 +246,138 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Text(label, style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.62))),
           const SizedBox(height: 8),
           Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLiveGamesCard(List<Game> activeGames) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FBFC),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFDCE4E8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Live Games',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            activeGames.length.toString(),
+            style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            activeGames.isEmpty
+                ? 'No games are currently active.'
+                : 'Games currently available to operators.',
+            style: TextStyle(fontSize: 13, color: Colors.black.withOpacity(0.62)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCashoutSummaryCard({
+    required int todayCount,
+    required double maxToday,
+    required double minToday,
+    required double latestAmount,
+    required double todayTotal,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FBFC),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFDCE4E8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Today\'s Cashouts',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '$todayCount cashout${todayCount == 1 ? '' : 's'} recorded today',
+            style: TextStyle(fontSize: 13, color: Colors.black.withOpacity(0.62)),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(child: _metricCard('Max Cashout', maxToday.toStringAsFixed(2))),
+              const SizedBox(width: 12),
+              Expanded(child: _metricCard('Min Cashout', minToday.toStringAsFixed(2))),
+              const SizedBox(width: 12),
+              Expanded(child: _metricCard('Latest Cashout', latestAmount.toStringAsFixed(2))),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _metricCard('Total Cashouts', todayTotal.toStringAsFixed(2)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAvailableGamesCard(List<Game> activeGames) {
+    return SectionCard(
+      title: 'Available Games',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FBFC),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFDCE4E8)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Available now',
+                        style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.62)),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        activeGames.length.toString(),
+                        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
+                      ),
+                    ],
+                  ),
+                ),
+                _pill(activeGames.isEmpty ? 'Offline' : 'Live', activeGames.isEmpty ? Colors.grey : Colors.green),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (activeGames.isEmpty)
+            const Text('No games are switched on right now.')
+          else
+            Column(
+              children: activeGames.map((game) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _dashboardRow(
+                    title: game.name,
+                    subtitle: game.websiteUrl.isEmpty ? game.slug : game.websiteUrl,
+                    trailing: _pill('Live', Colors.green),
+                  ),
+                );
+              }).toList(),
+            ),
         ],
       ),
     );

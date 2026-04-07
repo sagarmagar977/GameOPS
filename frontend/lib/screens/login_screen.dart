@@ -88,32 +88,20 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final compact = constraints.maxWidth < 900;
-            final intro = _buildIntro(theme, compact);
+            final horizontalPadding = constraints.maxWidth < 420 ? 16.0 : 24.0;
             final formCard = _buildForm(theme);
 
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1040),
+            return SafeArea(
+              child: Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: compact
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            intro,
-                            const SizedBox(height: 24),
-                            formCard,
-                          ],
-                        )
-                      : Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Expanded(child: intro),
-                            const SizedBox(width: 24),
-                            Expanded(child: formCard),
-                          ],
-                        ),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: horizontalPadding,
+                    vertical: 20,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: formCard,
+                  ),
                 ),
               ),
             );
@@ -123,63 +111,25 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildIntro(ThemeData theme, bool compact) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.72),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: const Text('GameOps Control Room'),
-        ),
-        const SizedBox(height: 20),
-        Text(
-          _isRegisterMode ? 'Create your operator account.' : 'Log in to unlock the admin cockpit.',
-          style: theme.textTheme.displaySmall,
-        ),
-        const SizedBox(height: 18),
-        Text(
-          _isRegisterMode
-              ? 'Create an account with your email and password. New signups become operator users by default.'
-              : 'Sign in with your backend account. Admins can edit data, while operators get the viewer workflow.',
-          style: theme.textTheme.titleMedium?.copyWith(height: 1.5),
-        ),
-        const SizedBox(height: 28),
-        Wrap(
-          spacing: 16,
-          runSpacing: 16,
-          children: const [
-            _InfoChip(
-              icon: Icons.admin_panel_settings_outlined,
-              title: 'Seeded Admin',
-              subtitle: 'Email: admin@example.com  Password: admin123',
-            ),
-            _InfoChip(
-              icon: Icons.person_add_alt_1_outlined,
-              title: 'Create Account',
-              subtitle: 'Register from this screen and log in instantly',
-            ),
-          ],
-        ),
-        if (!compact) const SizedBox(height: 12),
-      ],
-    );
-  }
-
   Widget _buildForm(ThemeData theme) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(28),
+        padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.72),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text('GameOps Control Room'),
+              ),
+              const SizedBox(height: 18),
               Text(
                 _isRegisterMode ? 'Create account' : 'Welcome back',
                 style: theme.textTheme.headlineMedium,
@@ -191,6 +141,15 @@ class _LoginScreenState extends State<LoginScreen> {
                     : 'Use your backend email and password to enter the panel.',
                 style: theme.textTheme.bodyLarge,
               ),
+              const SizedBox(height: 18),
+              if (!_isRegisterMode) ...[
+                const _InfoChip(
+                  icon: Icons.admin_panel_settings_outlined,
+                  title: 'Admin Login',
+                  subtitle: 'Email: admin@example.com\nPassword: admin123',
+                ),
+                const SizedBox(height: 18),
+              ],
               const SizedBox(height: 24),
               TextFormField(
                 controller: _emailController,
@@ -355,7 +314,6 @@ class _InfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 260,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.76),

@@ -1,11 +1,11 @@
 {
-    "name": "gameops_frontend",
-    "short_name": "gameops_frontend",
+    "name": "GameOps",
+    "short_name": "GameOps",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Game operations dashboard",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

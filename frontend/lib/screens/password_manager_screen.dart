@@ -31,10 +31,11 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
   bool isSaving = false;
   bool isPrimary = true;
   bool revealPasswords = false;
-  bool showPasswordsInList = false;
   String? selectedGameId;
   String? editingId;
   String? errorText;
+  final Set<String> expandedCredentialIds = <String>{};
+  final Set<String> visiblePasswordIds = <String>{};
 
   @override
   void initState() {
@@ -149,6 +150,8 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
       if (editingId == credential.id) {
         _resetForm(clearSelectedGame: false);
       }
+      expandedCredentialIds.remove(credential.id);
+      visiblePasswordIds.remove(credential.id);
       await _loadData();
     } catch (error) {
       setState(() => errorText = '$error');
@@ -262,15 +265,6 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
             style: Theme.of(context).textTheme.titleMedium,
           ),
         ),
-        IconButton(
-          tooltip: showPasswordsInList ? 'Hide passwords' : 'Show passwords',
-          onPressed: selectedCredentials.isEmpty
-              ? null
-              : () {
-                  setState(() => showPasswordsInList = !showPasswordsInList);
-                },
-          icon: Icon(showPasswordsInList ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-        ),
         if (widget.isAdmin)
           FilledButton.icon(
             onPressed: isSaving ? null : () => _openEditor(),
@@ -322,10 +316,10 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
   }
 
   Widget _buildCredentialCard(Credential credential) {
-    final title = credential.label.trim().isEmpty ? credential.username : credential.label.trim();
+    final isExpanded = expandedCredentialIds.contains(credential.id);
+    final showPassword = visiblePasswordIds.contains(credential.id);
 
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFF9FBFC),
         borderRadius: BorderRadius.circular(18),
@@ -334,47 +328,99 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
+          InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () {
+              setState(() {
+                if (isExpanded) {
+                  expandedCredentialIds.remove(credential.id);
+                } else {
+                  expandedCredentialIds.add(credential.id);
+                }
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      credential.username,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      credential.username,
-                      style: TextStyle(fontSize: 13, color: Colors.black.withOpacity(0.68)),
-                    ),
-                  ],
-                ),
-              ),
-              if (credential.isPrimary) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFDDF4E8),
-                    borderRadius: BorderRadius.circular(999),
                   ),
-                  child: const Text('Primary', style: TextStyle(fontSize: 12)),
-                ),
-                const SizedBox(width: 8),
-              ],
-              if (widget.isAdmin) _menuButton(credential),
-            ],
+                  if (credential.isPrimary) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDDF4E8),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Text('Primary', style: TextStyle(fontSize: 12)),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  if (widget.isAdmin) ...[
+                    _menuButton(credential),
+                    const SizedBox(width: 8),
+                  ],
+                  Icon(
+                    isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    color: const Color(0xFF476268),
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 14),
-          _detailLine('Username', credential.username),
-          const SizedBox(height: 8),
-          _detailLine('Password', showPasswordsInList ? credential.password : '********'),
-          if (credential.notes.trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _detailLine('Notes', credential.notes.trim()),
+          if (isExpanded) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Divider(height: 1),
+                  const SizedBox(height: 14),
+                  _detailLine('Game', credential.gameName),
+                  const SizedBox(height: 10),
+                  _detailLine('Username', credential.username),
+                  const SizedBox(height: 10),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: _detailLine(
+                          'Password',
+                          showPassword ? credential.password : '********',
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: showPassword ? 'Hide password' : 'Show password',
+                        onPressed: () {
+                          setState(() {
+                            if (showPassword) {
+                              visiblePasswordIds.remove(credential.id);
+                            } else {
+                              visiblePasswordIds.add(credential.id);
+                            }
+                          });
+                        },
+                        icon: Icon(
+                          showPassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (credential.notes.trim().isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _detailLine('Notes', credential.notes.trim()),
+                  ],
+                ],
+              ),
+            ),
           ],
         ],
       ),

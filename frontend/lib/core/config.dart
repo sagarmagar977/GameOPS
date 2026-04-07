@@ -1,25 +1,28 @@
 import 'package:flutter/foundation.dart';
 
 const String _defaultHostedApiBaseUrl = 'https://gameops-eyyv.onrender.com/api';
+const String _defaultAndroidLocalApiBaseUrl = 'http://10.0.2.2:4000/api';
 const String _defaultLocalApiBaseUrl = 'http://localhost:4000/api';
 
-String get apiBaseUrl {
+List<String> get apiBaseUrls {
   const override = String.fromEnvironment('API_BASE_URL');
   if (override.isNotEmpty) {
-    return override;
+    return [override];
   }
 
-  // Use the hosted backend by default so physical devices and web builds work
-  // without extra configuration. Local URLs are still available via override.
+  // Web and desktop can usually talk to localhost directly, so prefer that and
+  // fall back to the hosted API when the local backend is unavailable.
   if (kIsWeb) {
-    return _defaultHostedApiBaseUrl;
+    return [_defaultLocalApiBaseUrl, _defaultHostedApiBaseUrl];
   }
 
-  if (defaultTargetPlatform == TargetPlatform.android ||
-      defaultTargetPlatform == TargetPlatform.iOS) {
-    return _defaultHostedApiBaseUrl;
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    return [_defaultAndroidLocalApiBaseUrl, _defaultHostedApiBaseUrl];
   }
 
-  // Desktop local development can still talk to a locally running backend.
-  return _defaultLocalApiBaseUrl;
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    return [_defaultLocalApiBaseUrl, _defaultHostedApiBaseUrl];
+  }
+
+  return [_defaultLocalApiBaseUrl, _defaultHostedApiBaseUrl];
 }
