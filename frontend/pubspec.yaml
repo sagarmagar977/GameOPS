@@ -1,0 +1,16 @@
+name: gameops_frontend
+description: Game operations dashboard starter
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.3.0
+
+flutter:
+  uses-material-design: true
