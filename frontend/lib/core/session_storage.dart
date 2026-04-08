@@ -6,6 +6,7 @@ import '../models/app_user.dart';
 
 class SessionStorage {
   static const _sessionKey = 'auth_session';
+  static const _rememberedLoginKey = 'remembered_login';
 
   Future<void> saveSession(AppUser user) async {
     final prefs = await SharedPreferences.getInstance();
@@ -18,6 +19,20 @@ class SessionStorage {
         'token': user.token,
       }),
     );
+  }
+
+  Future<void> saveRememberedLogin(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_rememberedLoginKey, value.trim().toLowerCase());
+  }
+
+  Future<String?> loadRememberedLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_rememberedLoginKey)?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    return value;
   }
 
   Future<AppUser?> loadSession() async {

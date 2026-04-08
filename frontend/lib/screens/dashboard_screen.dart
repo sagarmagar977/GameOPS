@@ -4,8 +4,11 @@ import '../core/api_client.dart';
 import '../models/cashout.dart';
 import '../models/cashout_rule.dart';
 import '../models/game.dart';
+import '../models/pending_cashout.dart';
+import '../repositories/dashboard_repository.dart';
+import '../services/pending_cashout_sync_service.dart';
+import '../widgets/dashboard_skeleton.dart';
 import '../widgets/page_frame.dart';
-import '../widgets/section_card.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
@@ -20,14 +23,25 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final api = const ApiClient();
+  final _repository = DashboardRepository();
+  final _api = const ApiClient();
+  final _pendingSyncService = PendingCashoutSyncService.instance;
   final playerNameController = TextEditingController();
   final amountController = TextEditingController();
 
   String? selectedGameId;
   bool isSavingCashout = false;
-  String? errorText;
-  int _reloadSeed = 0;
+  bool _isInitialLoading = true;
+  bool _isRefreshing = false;
+  String? _errorText;
+  _DashboardData? _data;
+  List<PendingCashout> _pendingCashouts = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboard();
+  }
 
   @override
   void dispose() {
@@ -36,19 +50,69 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  Future<_DashboardData> _load() async {
-    final dashboardJson = await api.get('/dashboard');
-    final gamesJson = List<dynamic>.from(dashboardJson['games'] as List<dynamic>);
-    final rulesJson = List<dynamic>.from(dashboardJson['rules'] as List<dynamic>);
-    final cashoutsJson = List<dynamic>.from(dashboardJson['cashouts'] as List<dynamic>);
+  Future<void> _loadDashboard() async {
+    final pending = await _pendingSyncService.loadPending();
+    final cachedJson = await _repository.loadCached();
 
-    final games = gamesJson.map((item) => Game.fromJson(item as Map<String, dynamic>)).toList();
-    final rules = rulesJson.map((item) => CashoutRule.fromJson(item as Map<String, dynamic>)).toList();
-    final cashouts = cashoutsJson.map((item) => Cashout.fromJson(item as Map<String, dynamic>)).toList();
+    if (mounted) {
+      setState(() {
+        _pendingCashouts = pending;
+      });
+    }
 
-    selectedGameId ??= games.isNotEmpty ? games.first.id : null;
+    if (cachedJson != null && mounted) {
+      setState(() {
+        _data = _DashboardData.fromJson(cachedJson);
+        _syncSelectedGameId(_data!.games);
+        _isInitialLoading = false;
+      });
+    }
 
-    return _DashboardData(games: games, rules: rules, cashouts: cashouts);
+    if (mounted) {
+      setState(() {
+        _isRefreshing = true;
+        _errorText = null;
+      });
+    }
+
+    try {
+      final syncedPending = await _pendingSyncService.syncPending();
+      final remoteJson = await _repository.refreshRemote();
+      final latestPending = await _pendingSyncService.loadPending();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _data = _DashboardData.fromJson(remoteJson);
+        _pendingCashouts = latestPending;
+        _syncSelectedGameId(_data!.games);
+        _isInitialLoading = false;
+        _errorText = null;
+      });
+
+      if (syncedPending && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pending cashouts synced.')),
+        );
+      }
+    } catch (error) {
+      final latestPending = await _pendingSyncService.loadPending();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _pendingCashouts = latestPending;
+        _isInitialLoading = false;
+        _errorText = '$error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshing = false);
+      }
+    }
   }
 
   Future<void> _openCashoutSheet(List<Game> games) async {
@@ -81,7 +145,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         playerNameController.clear();
         amountController.clear();
-        errorText = null;
+        _errorText = null;
       });
     }
   }
@@ -91,25 +155,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final amount = double.tryParse(amountController.text.trim());
 
     if (selectedGameId == null) {
-      setState(() => errorText = 'Choose a game first.');
+      setState(() => _errorText = 'Choose a game first.');
       return;
     }
     if (playerName.isEmpty) {
-      setState(() => errorText = 'Username is required.');
+      setState(() => _errorText = 'Username is required.');
       return;
     }
     if (amount == null || amount <= 0) {
-      setState(() => errorText = 'Enter a valid cashout amount.');
+      setState(() => _errorText = 'Enter a valid cashout amount.');
       return;
+    }
+
+    Game? selectedGame;
+    for (final game in _data?.games ?? const <Game>[]) {
+      if (game.id == selectedGameId) {
+        selectedGame = game;
+        break;
+      }
     }
 
     setState(() {
       isSavingCashout = true;
-      errorText = null;
+      _errorText = null;
     });
 
     try {
-      await api.post('/cashouts', {
+      await _api.post('/cashouts', {
         'game_id': selectedGameId,
         'credential_id': null,
         'player_name': playerName,
@@ -125,10 +197,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         playerNameController.clear();
         amountController.clear();
-        _reloadSeed++;
       });
+      await _loadDashboard();
     } catch (error) {
-      setState(() => errorText = '$error');
+      if (_isConnectivityError(error)) {
+        await _pendingSyncService.enqueue(
+          gameId: selectedGameId!,
+          gameName: selectedGame?.name ?? 'Unknown game',
+          playerName: playerName,
+          amount: amount,
+        );
+
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+
+        setState(() {
+          playerNameController.clear();
+          amountController.clear();
+        });
+        await _loadDashboard();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Saved offline. Cashout will sync automatically.')),
+          );
+        }
+      } else {
+        setState(() => _errorText = '$error');
+      }
     } finally {
       if (mounted) {
         setState(() => isSavingCashout = false);
@@ -143,239 +240,128 @@ class _DashboardScreenState extends State<DashboardScreen> {
       subtitle: widget.isAdmin
           ? 'See which games are live and track cashouts from the database.'
           : 'Check available games and read the latest cashout summary.',
-      child: FutureBuilder<_DashboardData>(
-        future: _load(),
-        key: ValueKey(_reloadSeed),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            if (snapshot.hasError) {
-              return Center(child: Text('Failed to load dashboard: ${snapshot.error}'));
-            }
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final data = snapshot.data!;
-          final activeGames = data.games.where((game) => game.isActive).toList();
-          final todayCashouts = data.cashouts.where(_isToday).toList();
-          final latestCashout = data.cashouts.isEmpty ? null : data.cashouts.first;
-          final maxToday = todayCashouts.isEmpty
-              ? 0.0
-              : todayCashouts.map((cashout) => cashout.amount).reduce((a, b) => a > b ? a : b);
-          final minToday = todayCashouts.isEmpty
-              ? 0.0
-              : todayCashouts.map((cashout) => cashout.amount).reduce((a, b) => a < b ? a : b);
-          final todayCount = todayCashouts.length;
-          final todayTotal = todayCashouts.fold<double>(0, (sum, cashout) => sum + cashout.amount);
-          final latestAmount = latestCashout?.amount ?? 0.0;
-
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 920;
-
-              return ListView(
-                children: [
-                  compact
-                      ? Column(
-                          children: [
-                            _buildLiveGamesCard(activeGames),
-                            const SizedBox(height: 16),
-                            _buildCashoutSummaryCard(
-                              todayCount: todayCount,
-                              maxToday: maxToday,
-                              minToday: minToday,
-                              latestAmount: latestAmount,
-                              todayTotal: todayTotal,
-                            ),
-                          ],
-                        )
-                      : Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              flex: 4,
-                              child: _buildLiveGamesCard(activeGames),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              flex: 8,
-                              child: _buildCashoutSummaryCard(
-                                todayCount: todayCount,
-                                maxToday: maxToday,
-                                minToday: minToday,
-                                latestAmount: latestAmount,
-                                todayTotal: todayTotal,
-                              ),
-                            ),
-                          ],
-                        ),
-                  const SizedBox(height: 20),
-                  _buildAvailableGamesCard(activeGames),
-                  const SizedBox(height: 20),
-                  if (compact) ...[
-                    _buildRulesCard(data.rules),
-                    const SizedBox(height: 20),
-                    _buildCashoutsCard(data.games, data.cashouts),
-                  ] else
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: _buildRulesCard(data.rules)),
-                        const SizedBox(width: 20),
-                        Expanded(child: _buildCashoutsCard(data.games, data.cashouts)),
-                      ],
-                    ),
-                ],
-              );
-            },
-          );
-        },
-      ),
+      child: _buildBody(),
     );
   }
 
-  Widget _metricCard(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFC),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFDCE4E8)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.62))),
-          const SizedBox(height: 8),
-          Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
+  Widget _buildBody() {
+    final data = _data;
+    if (data == null) {
+      if (_isInitialLoading) {
+        return const DashboardSkeleton();
+      }
+      return Center(child: Text('Failed to load dashboard: ${_errorText ?? 'Unknown error'}'));
+    }
 
-  Widget _buildLiveGamesCard(List<Game> activeGames) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFC),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFDCE4E8)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Live Games',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            activeGames.length.toString(),
-            style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            activeGames.isEmpty
-                ? 'No games are currently active.'
-                : 'Games currently available to operators.',
-            style: TextStyle(fontSize: 13, color: Colors.black.withOpacity(0.62)),
-          ),
-        ],
-      ),
-    );
-  }
+    final mergedCashouts = _mergedCashouts(data.cashouts);
+    final activeGames = data.games.where((game) => game.isActive).toList();
+    final todayCashouts = mergedCashouts.where(_isToday).toList();
+    final latestCashout = mergedCashouts.isEmpty ? null : mergedCashouts.first;
+    final maxVisible = mergedCashouts.isEmpty
+        ? 0.0
+        : mergedCashouts.map((cashout) => cashout.amount).reduce((a, b) => a > b ? a : b);
+    final minVisible = mergedCashouts.isEmpty
+        ? 0.0
+        : mergedCashouts.map((cashout) => cashout.amount).reduce((a, b) => a < b ? a : b);
+    final todayCount = todayCashouts.length;
+    final todayTotal = todayCashouts.fold<double>(0, (sum, cashout) => sum + cashout.amount);
+    final latestAmount = latestCashout?.amount ?? 0.0;
 
-  Widget _buildCashoutSummaryCard({
-    required int todayCount,
-    required double maxToday,
-    required double minToday,
-    required double latestAmount,
-    required double todayTotal,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFC),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFDCE4E8)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Today\'s Cashouts',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '$todayCount cashout${todayCount == 1 ? '' : 's'} recorded today',
-            style: TextStyle(fontSize: 13, color: Colors.black.withOpacity(0.62)),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(child: _metricCard('Max Cashout', maxToday.toStringAsFixed(2))),
-              const SizedBox(width: 12),
-              Expanded(child: _metricCard('Min Cashout', minToday.toStringAsFixed(2))),
-              const SizedBox(width: 12),
-              Expanded(child: _metricCard('Latest Cashout', latestAmount.toStringAsFixed(2))),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 920;
+        final stackLowerSections = constraints.maxWidth < 1040;
+
+        return ListView(
+          children: [
+            if (_isRefreshing) const LinearProgressIndicator(),
+            if (_errorText != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Showing cached dashboard data. Refresh issue: $_errorText',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ],
-          ),
-          const SizedBox(height: 12),
-          _metricCard('Total Cashouts', todayTotal.toStringAsFixed(2)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAvailableGamesCard(List<Game> activeGames) {
-    return SectionCard(
-      title: 'Available Games',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF9FBFC),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFDCE4E8)),
-            ),
-            child: Row(
+            if (_pendingCashouts.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                '${_pendingCashouts.length} cashout${_pendingCashouts.length == 1 ? '' : 's'} waiting to sync',
+                style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600),
+              ),
+            ],
+            if (_isRefreshing || _errorText != null || _pendingCashouts.isNotEmpty) const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
+                  flex: compact ? 11 : 5,
+                  child: _buildLiveGamesCard(activeGames),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: compact ? 13 : 7,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Available now',
-                        style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.62)),
+                      _buildCashoutSummaryCard(
+                        todayCount: todayCount,
+                        maxVisible: maxVisible,
+                        minVisible: minVisible,
+                        latestAmount: latestAmount,
+                        todayTotal: todayTotal,
+                        compact: compact,
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        activeGames.length.toString(),
-                        style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
-                      ),
+                      const SizedBox(height: 20),
+                      _buildCashoutsCard(data.games, mergedCashouts),
                     ],
                   ),
                 ),
-                _pill(activeGames.isEmpty ? 'Offline' : 'Live', activeGames.isEmpty ? Colors.grey : Colors.green),
               ],
             ),
+            const SizedBox(height: 20),
+            if (stackLowerSections) ...[
+              _buildRulesCard(data.rules),
+            ] else
+              _buildRulesCard(data.rules),
+          ],
+        );
+      },
+    );
+  }
+
+  List<Cashout> _mergedCashouts(List<Cashout> remoteCashouts) {
+    final pendingCashouts = _pendingCashouts.map((item) => item.toCashout());
+    final merged = [...pendingCashouts, ...remoteCashouts];
+    merged.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return merged;
+  }
+
+  void _syncSelectedGameId(List<Game> games) {
+    if (selectedGameId != null && games.any((game) => game.id == selectedGameId)) {
+      return;
+    }
+    selectedGameId = games.isNotEmpty ? games.first.id : null;
+  }
+
+  Widget _buildLiveGamesCard(List<Game> activeGames) {
+    return _buildDashboardSection(
+      title: 'Live Games',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _statLine(
+            label: 'Available now',
+            value: activeGames.length.toString(),
+            highlight: true,
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           if (activeGames.isEmpty)
             const Text('No games are switched on right now.')
           else
             Column(
               children: activeGames.map((game) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _dashboardRow(
-                    title: game.name,
-                    subtitle: game.websiteUrl.isEmpty ? game.slug : game.websiteUrl,
-                    trailing: _pill('Live', Colors.green),
-                  ),
+                return _listRow(
+                  title: game.name,
+                  subtitle: game.websiteUrl.isEmpty ? game.slug : game.websiteUrl,
                 );
               }).toList(),
             ),
@@ -384,23 +370,58 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildCashoutSummaryCard({
+    required int todayCount,
+    required double maxVisible,
+    required double minVisible,
+    required double latestAmount,
+    required double todayTotal,
+    required bool compact,
+  }) {
+    return _buildDashboardSection(
+      title: 'Cashouts',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$todayCount cashout${todayCount == 1 ? '' : 's'} recorded today',
+            style: TextStyle(fontSize: 13, color: Colors.black.withOpacity(0.62)),
+          ),
+          const SizedBox(height: 16),
+          _pairedStatRow(
+            leftLabel: 'Max',
+            leftValue: maxVisible.toStringAsFixed(2),
+            rightLabel: 'Min',
+            rightValue: minVisible.toStringAsFixed(2),
+            compact: compact,
+          ),
+          const SizedBox(height: 12),
+          _pairedStatRow(
+            leftLabel: 'Latest',
+            leftValue: latestAmount.toStringAsFixed(2),
+            rightLabel: 'Total',
+            rightValue: todayTotal.toStringAsFixed(2),
+            compact: compact,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRulesCard(List<CashoutRule> rules) {
-    return SectionCard(
+    return _buildDashboardSection(
       title: 'Cashout Rules',
       child: rules.isEmpty
           ? const Text('No cashout rules yet.')
           : Column(
               children: rules.map((rule) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _dashboardRow(
-                    title: rule.gameName.isEmpty ? 'Unknown game' : rule.gameName,
-                    subtitle:
-                        'Min ${rule.payoutMin.toStringAsFixed(2)}  Max ${rule.payoutMax.toStringAsFixed(2)}',
-                    trailing: _pill(
-                      rule.isFreeplayEnabled ? 'Enabled' : 'Paused',
-                      rule.isFreeplayEnabled ? Colors.green : Colors.grey,
-                    ),
+                return _listRow(
+                  title: rule.gameName.isEmpty ? 'Unknown game' : rule.gameName,
+                  subtitle:
+                      'Min ${rule.payoutMin.toStringAsFixed(2)}  Max ${rule.payoutMax.toStringAsFixed(2)}',
+                  trailing: _pill(
+                    rule.isFreeplayEnabled ? 'Enabled' : 'Paused',
+                    rule.isFreeplayEnabled ? Colors.green : Colors.grey,
                   ),
                 );
               }).toList(),
@@ -409,7 +430,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildCashoutsCard(List<Game> games, List<Cashout> cashouts) {
-    return SectionCard(
+    return _buildDashboardSection(
       title: 'Cashouts',
       child: Column(
         children: [
@@ -438,14 +459,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           else
             Column(
               children: cashouts.take(8).map((cashout) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _dashboardRow(
-                    title: cashout.playerName,
-                    subtitle: '${cashout.gameName}  ${_formatDate(cashout.createdAt)}',
-                    trailing: Text(
-                      cashout.amount.toStringAsFixed(2),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                final isPendingSync = cashout.status == 'pending_sync';
+                return _listRow(
+                  title: cashout.playerName,
+                  subtitle: isPendingSync
+                      ? '${cashout.gameName}  Pending sync'
+                      : '${cashout.gameName}  ${_formatDate(cashout.createdAt)}',
+                  trailing: Text(
+                    cashout.amount.toStringAsFixed(2),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: isPendingSync ? Theme.of(context).colorScheme.primary : null,
                     ),
                   ),
                 );
@@ -456,19 +480,105 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _dashboardRow({
+  Widget _buildDashboardSection({
     required String title,
-    required String subtitle,
-    required Widget trailing,
+    required Widget child,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFC),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFDCE4E8)),
+      padding: const EdgeInsets.only(bottom: 8),
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFDCE4E8)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _statLine({
+    required String label,
+    required String value,
+    bool highlight = false,
+    Widget? trailing,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: Colors.black.withOpacity(0.62)),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: highlight ? 30 : 22,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (trailing != null) ...[
+          const SizedBox(width: 12),
+          trailing,
+        ],
+      ],
+    );
+  }
+
+  Widget _pairedStatRow({
+    required String leftLabel,
+    required String leftValue,
+    required String rightLabel,
+    required String rightValue,
+    required bool compact,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _statLine(
+            label: leftLabel,
+            value: leftValue,
+          ),
+        ),
+        SizedBox(width: compact ? 14 : 20),
+        Expanded(
+          child: _statLine(
+            label: rightLabel,
+            value: rightValue,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _listRow({
+    required String title,
+    required String subtitle,
+    Widget? trailing,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: const BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFDCE4E8)),
+        ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: Column(
@@ -490,8 +600,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          trailing,
+          if (trailing != null) ...[
+            const SizedBox(width: 12),
+            trailing,
+          ],
         ],
       ),
     );
@@ -538,9 +650,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(labelText: 'Cashout amount'),
         ),
-        if (errorText != null) ...[
+        if (_errorText != null) ...[
           const SizedBox(height: 8),
-          Text(errorText!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          Text(_errorText!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
         ],
         const SizedBox(height: 16),
         SizedBox(
@@ -580,6 +692,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final minute = local.minute.toString().padLeft(2, '0');
     return '$month/$day $hour:$minute';
   }
+
+  bool _isConnectivityError(Object error) {
+    return error.toString().contains('Unable to reach any backend');
+  }
 }
 
 class _DashboardData {
@@ -588,6 +704,18 @@ class _DashboardData {
     required this.rules,
     required this.cashouts,
   });
+
+  factory _DashboardData.fromJson(Map<String, dynamic> json) {
+    final gamesJson = List<dynamic>.from(json['games'] as List<dynamic>? ?? const []);
+    final rulesJson = List<dynamic>.from(json['rules'] as List<dynamic>? ?? const []);
+    final cashoutsJson = List<dynamic>.from(json['cashouts'] as List<dynamic>? ?? const []);
+
+    return _DashboardData(
+      games: gamesJson.map((item) => Game.fromJson(item as Map<String, dynamic>)).toList(),
+      rules: rulesJson.map((item) => CashoutRule.fromJson(item as Map<String, dynamic>)).toList(),
+      cashouts: cashoutsJson.map((item) => Cashout.fromJson(item as Map<String, dynamic>)).toList(),
+    );
+  }
 
   final List<Game> games;
   final List<CashoutRule> rules;

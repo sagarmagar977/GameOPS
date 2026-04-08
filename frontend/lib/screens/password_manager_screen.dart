@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../core/api_client.dart';
 import '../models/credential.dart';
 import '../models/game.dart';
+import '../repositories/password_manager_repository.dart';
+import '../widgets/list_row_skeleton.dart';
 import '../widgets/page_frame.dart';
 import '../widgets/section_card.dart';
 
@@ -20,6 +22,7 @@ class PasswordManagerScreen extends StatefulWidget {
 
 class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
   final api = const ApiClient();
+  final _repository = PasswordManagerRepository();
   final usernameController = TextEditingController();
   final passwordController = TextEditingController();
   final labelController = TextEditingController();
@@ -28,6 +31,7 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
   List<Game> games = const [];
   List<Credential> credentials = const [];
   bool isLoading = true;
+  bool _isRefreshing = false;
   bool isSaving = false;
   bool isPrimary = true;
   bool revealPasswords = false;
@@ -53,14 +57,33 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
   }
 
   Future<void> _loadData() async {
+    final cached = await _repository.loadCached();
+    if (cached != null && mounted) {
+      final loadedGames = List<dynamic>.from(cached['games'] as List<dynamic>? ?? const [])
+          .map((item) => Game.fromJson(item as Map<String, dynamic>))
+          .toList();
+      final loadedCredentials = List<dynamic>.from(cached['credentials'] as List<dynamic>? ?? const [])
+          .map((item) => Credential.fromJson(item as Map<String, dynamic>))
+          .toList();
+      setState(() {
+        games = loadedGames;
+        credentials = loadedCredentials;
+        final hasSelectedGame = loadedGames.any((game) => game.id == selectedGameId);
+        selectedGameId = hasSelectedGame ? selectedGameId : (loadedGames.isNotEmpty ? loadedGames.first.id : null);
+        isLoading = false;
+      });
+    }
+
     setState(() {
-      isLoading = true;
+      isLoading = credentials.isEmpty && games.isEmpty;
+      _isRefreshing = true;
       errorText = null;
     });
 
     try {
-      final gamesJson = await api.getList('/games');
-      final credentialsJson = await api.getList('/credentials');
+      final payload = await _repository.refreshRemote();
+      final gamesJson = List<dynamic>.from(payload['games'] as List<dynamic>? ?? const []);
+      final credentialsJson = List<dynamic>.from(payload['credentials'] as List<dynamic>? ?? const []);
       final loadedGames = gamesJson.map((item) => Game.fromJson(item as Map<String, dynamic>)).toList();
       final loadedCredentials =
           credentialsJson.map((item) => Credential.fromJson(item as Map<String, dynamic>)).toList();
@@ -76,7 +99,10 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
       setState(() => errorText = '$error');
     } finally {
       if (mounted) {
-        setState(() => isLoading = false);
+        setState(() {
+          isLoading = false;
+          _isRefreshing = false;
+        });
       }
     }
   }
@@ -236,10 +262,12 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
         expandChild: true,
         child: Column(
           children: [
+            if (_isRefreshing) const LinearProgressIndicator(),
+            if (_isRefreshing) const SizedBox(height: 12),
             _buildTopBar(selectedCredentials),
             const SizedBox(height: 16),
             _buildGameSelector(),
-            if (errorText != null) ...[
+            if (errorText != null && credentials.isEmpty) ...[
               const SizedBox(height: 12),
               Align(
                 alignment: Alignment.centerLeft,
@@ -289,7 +317,11 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
 
   Widget _buildSelectedCredentialRows(List<Credential> selectedCredentials) {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return ListView.separated(
+        itemCount: 4,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (_, __) => const ListRowSkeleton(),
+      );
     }
     if (errorText != null && credentials.isEmpty) {
       return Text('Failed to load credentials: $errorText');

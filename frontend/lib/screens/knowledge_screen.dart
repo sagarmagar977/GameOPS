@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../core/api_client.dart';
 import '../models/faq.dart';
 import '../models/game.dart';
+import '../repositories/knowledge_repository.dart';
+import '../widgets/list_row_skeleton.dart';
 import '../widgets/page_frame.dart';
 import '../widgets/section_card.dart';
 
@@ -20,7 +22,7 @@ class KnowledgeScreen extends StatefulWidget {
 }
 
 class _KnowledgeScreenState extends State<KnowledgeScreen> {
-  final api = const ApiClient();
+  final _repository = KnowledgeRepository();
   final searchController = TextEditingController();
   final faqQuestionController = TextEditingController();
   final faqAnswerController = TextEditingController();
@@ -29,6 +31,7 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
   List<Game> games = const [];
   List<Faq> faqs = const [];
   bool isLoading = true;
+  bool _isRefreshing = false;
   bool faqApproved = true;
   String? selectedFaqGameId;
   String? editingFaqId;
@@ -50,15 +53,34 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
   }
 
   Future<void> _load() async {
+    final query = searchController.text.trim();
+    if (query.isEmpty) {
+      final cached = await _repository.loadCached();
+      if (cached != null && mounted) {
+        final loadedGames = List<dynamic>.from(cached['games'] as List<dynamic>? ?? const [])
+            .map((item) => Game.fromJson(item as Map<String, dynamic>))
+            .toList();
+        setState(() {
+          games = loadedGames;
+          faqs = List<dynamic>.from(cached['faqs'] as List<dynamic>? ?? const [])
+              .map((item) => Faq.fromJson(item as Map<String, dynamic>))
+              .toList();
+          selectedFaqGameId ??= loadedGames.isNotEmpty ? loadedGames.first.id : null;
+          isLoading = false;
+        });
+      }
+    }
+
     setState(() {
-      isLoading = true;
+      isLoading = games.isEmpty;
+      _isRefreshing = true;
       errorText = null;
     });
 
     try {
-      final query = searchController.text.trim();
-      final gamesJson = await api.getList('/games');
-      final faqsJson = await api.getList('/faqs', query: query.isEmpty ? null : {'q': query});
+      final payload = await _repository.refreshRemote(query: query);
+      final gamesJson = List<dynamic>.from(payload['games'] as List<dynamic>? ?? const []);
+      final faqsJson = List<dynamic>.from(payload['faqs'] as List<dynamic>? ?? const []);
 
       final loadedGames = gamesJson.map((item) => Game.fromJson(item as Map<String, dynamic>)).toList();
       setState(() {
@@ -70,7 +92,10 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
       setState(() => errorText = '$error');
     } finally {
       if (mounted) {
-        setState(() => isLoading = false);
+        setState(() {
+          isLoading = false;
+          _isRefreshing = false;
+        });
       }
     }
   }
@@ -95,9 +120,9 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
 
     try {
       if (editingFaqId == null) {
-        await api.post('/faqs', payload);
+        await const ApiClient().post('/faqs', payload);
       } else {
-        await api.put('/faqs/$editingFaqId', payload);
+        await const ApiClient().put('/faqs/$editingFaqId', payload);
       }
       _resetFaqForm();
       if (mounted && Navigator.of(context).canPop()) {
@@ -114,7 +139,7 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
     if (confirmed != true) return;
 
     try {
-      await api.delete('/faqs/${faq.id}');
+      await const ApiClient().delete('/faqs/${faq.id}');
       if (editingFaqId == faq.id) {
         _resetFaqForm();
       }
@@ -206,6 +231,8 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
           : 'Search approved answers for operators.',
       child: Column(
         children: [
+          if (_isRefreshing) const LinearProgressIndicator(),
+          if (_isRefreshing) const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -226,7 +253,7 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
               ),
             ],
           ),
-          if (errorText != null) ...[
+          if (errorText != null && faqs.isEmpty) ...[
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerLeft,
@@ -271,7 +298,11 @@ class _KnowledgeScreenState extends State<KnowledgeScreen> {
 
   Widget _buildFaqList() {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return ListView.separated(
+        itemCount: 5,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (_, __) => const ListRowSkeleton(),
+      );
     }
     if (faqs.isEmpty) {
       return _emptyState('No FAQs found.');

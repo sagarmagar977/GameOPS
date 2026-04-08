@@ -17,6 +17,26 @@ class Game {
   final bool isHighlighted;
   final String notes;
 
+  Game copyWith({
+    String? id,
+    String? name,
+    String? slug,
+    String? websiteUrl,
+    bool? isActive,
+    bool? isHighlighted,
+    String? notes,
+  }) {
+    return Game(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      slug: slug ?? this.slug,
+      websiteUrl: websiteUrl ?? this.websiteUrl,
+      isActive: isActive ?? this.isActive,
+      isHighlighted: isHighlighted ?? this.isHighlighted,
+      notes: notes ?? this.notes,
+    );
+  }
+
   factory Game.fromJson(Map<String, dynamic> json) {
     return Game(
       id: json['id'] as String,

@@ -22,16 +22,42 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _selectedIndex = 0;
+  late final PageController _pageController;
+  late final List<Widget> _tabs;
 
   @override
-  Widget build(BuildContext context) {
-    final tabs = [
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _tabs = [
       DashboardScreen(isAdmin: widget.user.isAdmin),
       GamesScreen(isAdmin: widget.user.isAdmin),
       PasswordManagerScreen(isAdmin: widget.user.isAdmin),
       KnowledgeScreen(isAdmin: widget.user.isAdmin),
     ];
+  }
 
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _selectTab(int index) {
+    if (_selectedIndex == index) {
+      return;
+    }
+
+    setState(() => _selectedIndex = index);
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -68,7 +94,7 @@ class _HomeShellState extends State<HomeShell> {
                                     padding: const EdgeInsets.symmetric(horizontal: 4),
                                     child: InkWell(
                                       borderRadius: BorderRadius.circular(16),
-                                      onTap: () => setState(() => _selectedIndex = index),
+                                      onTap: () => _selectTab(index),
                                       child: AnimatedContainer(
                                         duration: const Duration(milliseconds: 180),
                                         curve: Curves.easeOut,
@@ -98,7 +124,17 @@ class _HomeShellState extends State<HomeShell> {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    Expanded(child: tabs[_selectedIndex]),
+                    Expanded(
+                      child: PageView(
+                        controller: _pageController,
+                        onPageChanged: (index) {
+                          if (_selectedIndex != index) {
+                            setState(() => _selectedIndex = index);
+                          }
+                        },
+                        children: _tabs,
+                      ),
+                    ),
                   ],
                 ),
               );

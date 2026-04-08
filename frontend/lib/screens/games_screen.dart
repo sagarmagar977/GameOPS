@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../models/game.dart';
+import '../repositories/games_repository.dart';
+import '../widgets/list_row_skeleton.dart';
 import '../widgets/page_frame.dart';
 import '../widgets/section_card.dart';
 
@@ -19,15 +21,17 @@ class GamesScreen extends StatefulWidget {
 
 class _GamesScreenState extends State<GamesScreen> {
   final api = const ApiClient();
+  final _repository = GamesRepository();
   final nameController = TextEditingController();
   final slugController = TextEditingController();
   final urlController = TextEditingController();
   final notesController = TextEditingController();
+  final Set<String> _togglingGameIds = <String>{};
 
   List<Game> games = const [];
   bool isLoading = true;
+  bool _isRefreshing = false;
   bool isSaving = false;
-  bool isToggling = false;
   bool isActive = true;
   bool isHighlighted = false;
   String? editingId;
@@ -50,14 +54,25 @@ class _GamesScreenState extends State<GamesScreen> {
   }
 
   Future<void> _loadGames() async {
-    setState(() {
-      isLoading = true;
-      errorText = null;
-      websiteUrlError = null;
-    });
+    final cachedGames = await _repository.loadCached();
+    if (cachedGames != null && mounted) {
+      setState(() {
+        games = cachedGames.map((item) => Game.fromJson(item as Map<String, dynamic>)).toList();
+        isLoading = false;
+      });
+    }
+
+    if (mounted) {
+      setState(() {
+        isLoading = games.isEmpty;
+        _isRefreshing = true;
+        errorText = null;
+        websiteUrlError = null;
+      });
+    }
 
     try {
-      final json = await api.getList('/games');
+      final json = await _repository.refreshRemote();
       setState(() {
         games = json.map((item) => Game.fromJson(item as Map<String, dynamic>)).toList();
       });
@@ -65,7 +80,10 @@ class _GamesScreenState extends State<GamesScreen> {
       setState(() => errorText = '$error');
     } finally {
       if (mounted) {
-        setState(() => isLoading = false);
+        setState(() {
+          isLoading = false;
+          _isRefreshing = false;
+        });
       }
     }
   }
@@ -125,10 +143,17 @@ class _GamesScreenState extends State<GamesScreen> {
   }
 
   Future<void> _toggleAvailability(Game game, bool value) async {
+    final previousGames = List<Game>.from(games);
+
     setState(() {
-      isToggling = true;
       errorText = null;
+      _togglingGameIds.add(game.id);
+      games = [
+        for (final item in games)
+          if (item.id == game.id) item.copyWith(isActive: value) else item,
+      ];
     });
+    await _saveGamesCache();
 
     try {
       await api.put('/games/${game.id}', {
@@ -139,12 +164,15 @@ class _GamesScreenState extends State<GamesScreen> {
         'is_active': value,
         'is_highlighted': game.isHighlighted,
       });
-      await _loadGames();
     } catch (error) {
-      setState(() => errorText = '$error');
+      setState(() {
+        games = previousGames;
+        errorText = '$error';
+      });
+      await _saveGamesCache();
     } finally {
       if (mounted) {
-        setState(() => isToggling = false);
+        setState(() => _togglingGameIds.remove(game.id));
       }
     }
   }
@@ -215,6 +243,22 @@ class _GamesScreenState extends State<GamesScreen> {
     return hasScheme ? trimmed : 'https://$trimmed';
   }
 
+  Future<void> _saveGamesCache() {
+    return _repository.saveCached(
+      games
+          .map((game) => {
+                'id': game.id,
+                'name': game.name,
+                'slug': game.slug,
+                'website_url': game.websiteUrl,
+                'is_active': game.isActive,
+                'is_highlighted': game.isHighlighted,
+                'notes': game.notes,
+              })
+          .toList(),
+    );
+  }
+
   Future<void> _openGameEditor({Game? game}) async {
     if (game == null) {
       _resetForm();
@@ -258,7 +302,23 @@ class _GamesScreenState extends State<GamesScreen> {
       child: SectionCard(
         title: widget.isAdmin ? 'Added Games' : 'Available Games',
         expandChild: true,
-        child: widget.isAdmin ? _buildAdminList() : _buildViewerList(),
+        child: Column(
+          children: [
+            if (_isRefreshing) const LinearProgressIndicator(),
+            if (_isRefreshing) const SizedBox(height: 12),
+            if (errorText != null && games.isNotEmpty) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Showing cached games. Refresh issue: $errorText',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            Expanded(child: widget.isAdmin ? _buildAdminList() : _buildViewerList()),
+          ],
+        ),
       ),
     );
   }
@@ -281,7 +341,7 @@ class _GamesScreenState extends State<GamesScreen> {
             ),
           ],
         ),
-        if (errorText != null) ...[
+        if (errorText != null && games.isEmpty) ...[
           const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerLeft,
@@ -298,7 +358,7 @@ class _GamesScreenState extends State<GamesScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (errorText != null) ...[
+        if (errorText != null && games.isEmpty) ...[
           Text(errorText!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           const SizedBox(height: 12),
         ],
@@ -309,7 +369,11 @@ class _GamesScreenState extends State<GamesScreen> {
 
   Widget _buildListRows({required bool adminMode}) {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return ListView.separated(
+        itemCount: 5,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (_, __) => const ListRowSkeleton(),
+      );
     }
     if (errorText != null && games.isEmpty) {
       return Text('Failed to load games: $errorText');
@@ -386,7 +450,9 @@ class _GamesScreenState extends State<GamesScreen> {
           width: 48,
           child: Switch(
             value: game.isActive,
-            onChanged: !enabled || isToggling ? null : (value) => _toggleAvailability(game, value),
+            onChanged: !enabled || _togglingGameIds.contains(game.id)
+                ? null
+                : (value) => _toggleAvailability(game, value),
           ),
         ),
       ],

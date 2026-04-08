@@ -7,9 +7,11 @@ class LoginScreen extends StatefulWidget {
   const LoginScreen({
     super.key,
     required this.onLogin,
+    this.initialEmail,
   });
 
   final Future<void> Function(AppUser user, bool rememberMe) onLogin;
+  final String? initialEmail;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -27,6 +29,15 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isSubmitting = false;
   bool _rememberMe = true;
   String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialEmail = widget.initialEmail?.trim() ?? '';
+    if (initialEmail.isNotEmpty) {
+      _emailController.text = initialEmail;
+    }
+  }
 
   @override
   void dispose() {
